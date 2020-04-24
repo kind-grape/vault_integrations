@@ -1,0 +1,215 @@
+# using AWS auth guide for Gitlab Runner
+
+## Concept of the AWS Auth 
+AWS auth method provides automated mechanism to retrive vault token for IAM principles and AWS EC2 instance.
+IAM method - a special AWS request signed with AWS IAM credentials is used for auth. IAM credentials are automatically supplied to AWS instances in IAM instance profiles
+EC2 method - AWS is treated as Trusted 3rd party and cryptographically signed dynamic metadata info that uniquely represent each EC2 instance is used for authentication. This metadata info is automatically supplied by AWS to all EC2 instances
+
+## Example of using IAM method AWS auth 
+Consider the following example with the environmental setup 
+we have 1 vault server 
+and another vault client running vault agent 
+
+First, we should create an EC2 IAM role for the vault client to authenticate with 
+This will make sure the IAM role will use AWS ec2 principle to authenticate
+We call this vault-agent-gitlab-demo-vault-client-role
+```
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "VaultClient",
+            "Effect": "Allow",
+            "Action": "ec2:DescribeInstances",
+            "Resource": "*"
+        }
+    ]
+}
+```
+Then on the Vault server, make sure we have the following IAM role associated to the vault server
+```
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "ConsulAutoJoin",
+            "Effect": "Allow",
+            "Action": "ec2:DescribeInstances",
+            "Resource": "*"
+        },
+        {
+            "Sid": "VaultAWSAuthMethod",
+            "Effect": "Allow",
+            "Action": [
+                "iam:GetUser",
+                "iam:GetRole",
+                "iam:GetInstanceProfile",
+                "ec2:DescribeInstances"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "VaultKMSUnseal",
+            "Effect": "Allow",
+            "Action": [
+                "kms:Encrypt",
+                "kms:DescribeKey",
+                "kms:Decrypt"
+            ],
+            "Resource": "*"
+        }
+    ]
+}
+```
+Please note that the IAM role above not only includes the AWS auth, but also KMS auto unseal and consul server auto join. 
+
+Once its completed set up on AWS IAM side, lets move onto the authentication part
+
+## AWS auth configs [demo running on AWS]
+On the server side, enable aws auth end point 
+To demo this, lets create a kv secret engines and create a kv pair
+
+```  
+vault secrets enable -path="secret" kv
+vault kv put secret/myapp/config ttl='30s' username='appuser' password='suP3rsec(et!'
+```
+
+Then write a policy for the vault client so that it can read into this secret engine 
+```
+echo "path \"secret/myapp/*\" {
+    capabilities = [\"read\", \"list\"]
+}" | vault policy write myapp -
+```
+
+Now let's configure the vault aws auth role for the vault client 
+the arn profile should be from the IAM user we created earlier 
+```
+vault write auth/aws/role/gitlab-role-iam auth_type=iam bound_iam_principal_arn="arn:aws:iam::794824571486:role/vault-agent-gitlab-demo-vault-client-role" policies=myapp ttl=24h
+```
+
+make sure the role is present at the list 
+```
+ubuntu@ip-10-0-101-80:~$ vault list auth/aws/role
+Keys
+----
+dev-role-iam
+gitlab-role-iam
+```
+
+Now let's move onto the vault client running vault agent. First generate a vault-agent.hcl config
+```
+[ec2-user@ip-172-31-17-255 ~]$ cat vault-agent.hcl
+exit_after_auth = true
+pid_file = "./pidfile"
+
+auto_auth {
+   method "aws" {
+       mount_path = "auth/aws"
+       config = {
+           type = "iam"
+           role = "gitlab-role-iam"
+       }
+   }
+
+   sink "file" {
+       config = {
+           path = "/home/ec2-user/vault-token-via-agent"
+       }
+   }
+}
+
+vault {
+   address = "http://3.101.73.161:8200"
+}
+```
+Note that the vault address should be the vault server api endpint and should have connectivity [use telnet to confirm before hand]
+This agent config has ```exit_after_auth = true``` argument which means once it succesfully authenticated with vault server, it will exit and would not run as a service/daemon 
+Sink file location are the places where it tells vault agent to place the authenticated token, which can then be used for vault operations. 
+After this command is run, you should see the following output if the vault client is successully authenticated with vault server 
+```
+[ec2-user@ip-172-31-17-255 ~]$ vault agent -config=vault-agent.hcl -log-level=debug
+==> Vault server started! Log data will stream in below:
+
+==> Vault agent configuration:
+
+                     Cgo: disabled
+               Log Level: debug
+                 Version: Vault v1.4.0
+
+2020-04-24T16:00:15.607Z [INFO]  sink.file: creating file sink
+2020-04-24T16:00:15.607Z [INFO]  sink.file: file sink configured: path=/home/ec2-user/vault-token-via-agent mode=-rw-r-----
+2020-04-24T16:00:15.618Z [INFO]  auth.handler: starting auth handler
+2020-04-24T16:00:15.618Z [INFO]  auth.handler: authenticating
+2020-04-24T16:00:15.618Z [INFO]  template.server: starting template server
+2020-04-24T16:00:15.618Z [INFO]  template.server: no templates found
+2020-04-24T16:00:15.618Z [INFO]  template.server: template server stopped
+2020-04-24T16:00:15.618Z [INFO]  sink.server: starting sink server
+2020-04-24T16:00:15.925Z [INFO]  auth.handler: authentication successful, sending token to sinks
+2020-04-24T16:00:15.926Z [INFO]  auth.handler: starting renewal process
+2020-04-24T16:00:15.926Z [INFO]  sink.file: token written: path=/home/ec2-user/vault-token-via-agent
+2020-04-24T16:00:15.926Z [INFO]  sink.server: sink server stopped
+2020-04-24T16:00:15.926Z [INFO]  sinks finished, exiting
+```
+
+Now we should be able to use this token, and read into the kv secret engine on vault server 
+```
+[ec2-user@ip-172-31-17-255 ~]$ curl --header "X-Vault-Token: $(cat vault-token-via-agent)" http://3.101.73.161:8200/v1/secret/myapp/config | jq
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100   219  100   219    0     0   5093      0 --:--:-- --:--:-- --:--:--  5093
+{
+  "request_id": "2d46af28-0858-4353-ee49-b5a732ab8747",
+  "lease_id": "",
+  "renewable": false,
+  "lease_duration": 30,
+  "data": {
+    "password": "suP3rsec(et!",
+    "ttl": "30s",
+    "username": "appuser"
+  },
+  "wrap_info": null,
+  "warnings": null,
+  "auth": null
+}
+```
+
+Note: if you would like extra security where this token is not displayed as a file on the location, we can use the vault wrap/unwrap function to consume the hashed token instead.
+To use the hash value, change the sink file config block in vault-agent.hcl as followed 
+```
+    sink "file" {
+        wrap_ttl = "5m"
+        config = {
+            path = "/home/ubuntu/vault-token-via-agent"
+        }
+```
+Instead of a token value, you now have a JSON object containing a wrapping token as well as some additional metadata. In order to get to the true token, you need to first perform an ```unwrap``` operation.
+Now in this case, actual token is never hardcoded or existed on the file systems 
+```
+[ec2-user@ip-172-31-17-255 ~]$ curl --header "X-Vault-Token: $(vault unwrap -address="http://3.101.73.161:8200" -field=token $(jq -r '.token' /home/ec2-user/vault-token-via-agent-wrapped))" http://3.101.73.161:8200/v1/secret/myapp/config | jq
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100   219  100   219    0     0   5214      0 --:--:-- --:--:-- --:--:--  5214
+{
+  "request_id": "6f0c20ab-9b0a-f33e-411f-18ef28d2b749",
+  "lease_id": "",
+  "renewable": false,
+  "lease_duration": 30,
+  "data": {
+    "password": "suP3rsec(et!",
+    "ttl": "30s",
+    "username": "appuser"
+  },
+  "wrap_info": null,
+  "warnings": null,
+  "auth": null
+}
+```
+
+
+
+
+
+
+
+
+
