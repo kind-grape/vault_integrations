@@ -81,7 +81,7 @@ echo "path \"secret/myapp/*\" {
 }" | vault policy write myapp -
 ```
 
-Now let's configure the vault aws auth role for the vault client 
+Configure the vault aws auth role for the vault client 
 the arn profile should be from the IAM user we created earlier 
 ```
 vault write auth/aws/role/gitlab-role-iam auth_type=iam bound_iam_principal_arn="arn:aws:iam::794824571486:role/vault-agent-gitlab-demo-vault-client-role" policies=myapp ttl=24h
@@ -96,7 +96,7 @@ dev-role-iam
 gitlab-role-iam
 ```
 
-Now let's move onto the vault client running vault agent. First generate a vault-agent.hcl config
+Let's move onto the vault client running vault agent. First generate a vault-agent.hcl config
 ```
 [ec2-user@ip-172-31-17-255 ~]$ cat vault-agent.hcl
 exit_after_auth = true
@@ -211,7 +211,7 @@ Now, consider the situation where you could only interact with Ec2 instances and
 The signature used to authenticate to Vault is a PKCS7 certificate that is part of the AWS Instance Identity Document. This certificate can be fetched from the EC2 metadata API with $(curl -s http://169.254.169.254/latest/dynamic/instance-identity/pkcs7 | tr -d '\n') and will then be part of the body of data sent with the login request.
 
 ## AWS ec2 auth configs [demo running on AWS]
-Now, on the same vault server we enabled IAM aws auth, let's create create another role in aws to authenticate using ec2 method  
+On the same vault server we enabled IAM aws auth, let's create create another role in aws to authenticate using ec2 method  
 ```
 vault write auth/aws/role/gitlab-role-ec2 auth_type=ec2 policies=myapp max_ttl=500h bound_ec2_instance_id=<instance_id>
 ```
@@ -270,7 +270,7 @@ After running the vault agent, it will generate a token file similar to the prev
 2020-04-27T14:11:23.234Z [INFO]  sinks finished, exiting
 ```
 
-Now, the token can be used to login to vault server 
+Finally the token can be used to login to vault server or used for vault requests
 ```
 [ec2-user@ip-172-31-17-255 ~]$ curl --header "X-Vault-Token: $(cat vault-token-ec2)" http://3.101.73.161:8200/v1/secret/myapp/config | jq
   % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
@@ -315,7 +315,7 @@ data=$(cat <<EOF
 EOF
 )
 ```
-Now login with the data above 
+login with the data above 
 ```
 curl --request POST --data "$data" "http://3.101.73.161:8200/v1/auth/aws/login"
 {"request_id":"a35cce4a-cd1c-e57d-59d7-6b8b6db8a129","lease_id":"","renewable":false,"lease_duration":0,"data":null,"wrap_info":null,"warnings":["TTL of \"768h\" exceeded the effective max_ttl of \"500h\"; TTL value is capped accordingly"],"auth":{"client_token":"s.dBB0UpR1tlDJFo9mYMw9RUu9","accessor":"MFEPIkWJ8Fr8g3k14bK7L8rU","policies":["default","myapp"],"token_policies":["default","myapp"],"metadata":{"account_id":"794824571486","ami_id":"ami-0d6621c01e8c2de2c","instance_id":"i-0d62dd456abb15b60","nonce":"56a1749e-e916-f55b-37ee-3c4e597149dc","region":"us-west-2","role":"gitlab-role-ec2","role_tag_max_ttl":"0s"},"lease_duration":1800000,"renewable":true,"entity_id":"0e0a7d83-4604-3678-83f9-c7ace66b30e8","token_type":"service","orphan":true}}
