@@ -318,7 +318,6 @@ EOF
 login with the data above 
 ```
 curl --request POST --data "$data" "http://3.101.73.161:8200/v1/auth/aws/login"
-{"request_id":"a35cce4a-cd1c-e57d-59d7-6b8b6db8a129","lease_id":"","renewable":false,"lease_duration":0,"data":null,"wrap_info":null,"warnings":["TTL of \"768h\" exceeded the effective max_ttl of \"500h\"; TTL value is capped accordingly"],"auth":{"client_token":"s.dBB0UpR1tlDJFo9mYMw9RUu9","accessor":"MFEPIkWJ8Fr8g3k14bK7L8rU","policies":["default","myapp"],"token_policies":["default","myapp"],"metadata":{"account_id":"794824571486","ami_id":"ami-0d6621c01e8c2de2c","instance_id":"i-0d62dd456abb15b60","nonce":"56a1749e-e916-f55b-37ee-3c4e597149dc","region":"us-west-2","role":"gitlab-role-ec2","role_tag_max_ttl":"0s"},"lease_duration":1800000,"renewable":true,"entity_id":"0e0a7d83-4604-3678-83f9-c7ace66b30e8","token_type":"service","orphan":true}}
 ```
 Note that the request response contains the token which can be use for subsequent vault requests
 
