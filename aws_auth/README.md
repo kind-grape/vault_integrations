@@ -292,7 +292,7 @@ Finally the token can be used to login to vault server or used for vault request
 }
 ```
 
-If you try to reauthenticate with vault with the same method, it will fail as vault has a TOFU model. Using vault agent aut-auth with ec2 is not recommended in this case. 
+If you try to reauthenticate with vault with the same method, it will fail as vault has a TOFU model. Using vault agent auto-auth with ec2 is not recommended in this case. 
 
 Note that since the ec2 auth is relying on the pkcs7 signature, any user logged in to the server can sign the signature and use that info to login to vault. 
 
