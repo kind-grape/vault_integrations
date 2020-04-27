@@ -1,4 +1,4 @@
-# using AWS auth guide for Gitlab Runner (or anything running on AWS EC2)
+# Using AWS Auth Guide for Gitlab Runner (or anything running on AWS EC2)
 
 ## Concept of the AWS Auth 
 AWS auth method provides automated mechanism to retrive vault token for IAM principles and AWS EC2 instance.
